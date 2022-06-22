@@ -1,10 +1,36 @@
 #include <iostream>
 #include <math.h>
 #include <random>
+#include <unistd.h>
 #include <vector>
+#include <ros/ros.h>
+#include <tf/transform_broadcaster.h>
+#include <tf2_ros/transform_broadcaster.h>
+#include <std_msgs/Float64MultiArray.h>
 using namespace std;
+double odom_pose_s[3]; odom_pose_tr[3]
+void odomCallback(const std_msgs::Float64MultiArray& msg) {
+	odom_pose_s[0] = msg.pose.pose.position.x;
+	odom_pose_s[1] = msg.pose.pose.position.y;
+	odom_pose_s[2] = tf::getYaw(msg.pose.pose.orientation);
+	sleep(0.02);
+	odom_pose_tr[0] = odom_pose_s[0];
+	odom_pose_tr[1] = odom_pose_s[1];
+	odom_pose_tr[2] = odom_pose_s[2];
+}
 /* Sampling x(i)_t ~ p(x(i)_t | x(i)_t-1, u_t) */
-const int M = 3;
+const int M = 30;
+void SampleInitial(double (&initial_pose)[3][M]) {
+	random_device s0;
+	mt19937 rng0(s0());
+	uniform_real_distribution<double> uni(0.0,1.0);
+	for (int i = 0; i <= 2; i++) {
+		for(int j = 0; j <= M-1; j++) {
+			double initial_pose[i][j] = uni(rng0);
+		}
+	}
+}
+		   
 void SampleMotionModel(double odom_pose_suc[3], double odom_pose_pre[3], double pose_est_pre[3][M], double (&pose_est_suc)[3][M])
 { 
     // Parameters of the noise model
@@ -42,16 +68,36 @@ void SampleMotionModel(double odom_pose_suc[3], double odom_pose_pre[3], double 
 		pose_est_suc[2][i] = pose_est_pre[2][i] + del_rot1_hat[i] + del_rot2_hat[i];
 	}
 }
-int main() {
-    double p;
-    double a[] = {1, 2, 1};
-    double b[] = {0.2, 1, 0.6};
-    double c[3][3] = {{1,1,1}, {1,0.8,0.8}, {0,0,0}};
-    double x[3][M];
+int main(int argc, char **argv) {
+    ros::init(argc, argv, "sample_motion");
+	ros::NodelHanle nh;
+	ros::Publisher pose_pub = nh.advertise<std_msgs::Float64MultiArray>("pose_sample", 1000);
+	ros::Subscriber odom_sub = nh.subscribe("odom", 1000, odomCallback); 
+    //double p;
+    //double a[] = {1, 2, 1};
+    //double b[] = {0.2, 1, 0.6};
+    //double c[3][3] = {{1,1,1}, {1,0.8,0.8}, {0,0,0}};
+    //double x[3][M];
 
-    SampleMotionModel(a, b, c, x);
-	cout << x[0][1] << endl << x[0][2] << endl << x[0][0];
-	//cout << "VScode";
-
+    //SampleMotionModel(a, b, c, x);
+	//cout << x[0][1] << endl << x[0][2] << endl << x[0][0];
+	
+	ROS_INFO("Publishing pose samples over ROS");
+	ros::Rate rate(50);
+	double pose_t[3][M];
+	SampleInitial(pose_t);
+	
+	while (ros::ok()) {
+	ros::spinOnce();
+	SampleMotionModel(odom_pose_s, odom_pose_tr, pose_t, pose_t);
+		
+	std_msgs::Float64MultiArray pose_sample;
+	for (int i = 0; i <= M-1; i++) {
+	pose_sample.data[i] = pose_t[0][i];
+	}
+	pose_pub.publish(pose_sample)
+	rate.sleep();	
+	}
+		
     return 0;
 }
