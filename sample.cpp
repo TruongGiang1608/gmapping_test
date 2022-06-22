@@ -7,9 +7,10 @@
 #include <tf/transform_broadcaster.h>
 #include <tf2_ros/transform_broadcaster.h>
 #include <std_msgs/Float64MultiArray.h>
+#include <nav_msgs/Odometry.h>
 using namespace std;
-double odom_pose_s[3]; odom_pose_tr[3]
-void odomCallback(const std_msgs::Float64MultiArray& msg) {
+double odom_pose_s[3]; odom_pose_tr[3];
+void odomCallback(const nav_msgs::Odometry& msg) {
 	odom_pose_s[0] = msg.pose.pose.position.x;
 	odom_pose_s[1] = msg.pose.pose.position.y;
 	odom_pose_s[2] = tf::getYaw(msg.pose.pose.orientation);
@@ -26,7 +27,7 @@ void SampleInitial(double (&initial_pose)[3][M]) {
 	uniform_real_distribution<double> uni(0.0,1.0);
 	for (int i = 0; i <= 2; i++) {
 		for(int j = 0; j <= M-1; j++) {
-			double initial_pose[i][j] = uni(rng0);
+			initial_pose[i][j] = uni(rng0);
 		}
 	}
 }
@@ -70,17 +71,9 @@ void SampleMotionModel(double odom_pose_suc[3], double odom_pose_pre[3], double 
 }
 int main(int argc, char **argv) {
     ros::init(argc, argv, "sample_motion");
-	ros::NodelHanle nh;
+	ros::NodeHandle nh;
 	ros::Publisher pose_pub = nh.advertise<std_msgs::Float64MultiArray>("pose_sample", 1000);
 	ros::Subscriber odom_sub = nh.subscribe("odom", 1000, odomCallback); 
-    //double p;
-    //double a[] = {1, 2, 1};
-    //double b[] = {0.2, 1, 0.6};
-    //double c[3][3] = {{1,1,1}, {1,0.8,0.8}, {0,0,0}};
-    //double x[3][M];
-
-    //SampleMotionModel(a, b, c, x);
-	//cout << x[0][1] << endl << x[0][2] << endl << x[0][0];
 	
 	ROS_INFO("Publishing pose samples over ROS");
 	ros::Rate rate(50);
@@ -95,7 +88,7 @@ int main(int argc, char **argv) {
 	for (int i = 0; i <= M-1; i++) {
 	pose_sample.data[i] = pose_t[0][i];
 	}
-	pose_pub.publish(pose_sample)
+	pose_pub.publish(pose_sample);
 	rate.sleep();	
 	}
 		
