@@ -11,13 +11,13 @@
 using namespace std;
 double odom_pose_s[3]; odom_pose_tr[3];
 void odomCallback(const nav_msgs::Odometry& msg) {
-	odom_pose_s[0] = msg.pose.pose.position.x;
-	odom_pose_s[1] = msg.pose.pose.position.y;
-	odom_pose_s[2] = tf::getYaw(msg.pose.pose.orientation);
-	sleep(0.02);
 	odom_pose_tr[0] = odom_pose_s[0];
 	odom_pose_tr[1] = odom_pose_s[1];
 	odom_pose_tr[2] = odom_pose_s[2];
+	
+	odom_pose_s[0] = msg.pose.pose.position.x;
+	odom_pose_s[1] = msg.pose.pose.position.y;
+	odom_pose_s[2] = tf::getYaw(msg.pose.pose.orientation);
 }
 /* Sampling x(i)_t ~ p(x(i)_t | x(i)_t-1, u_t) */
 const int M = 30;
@@ -85,8 +85,11 @@ int main(int argc, char **argv) {
 	SampleMotionModel(odom_pose_s, odom_pose_tr, pose_t, pose_t);
 		
 	std_msgs::Float64MultiArray pose_sample;
-	for (int i = 0; i <= M-1; i++) {
-	pose_sample.data[i] = pose_t[0][i];
+	//pose_sample.data.resize(3*M);
+	for (int i = 0; i <= 2; i++) {
+		for(int j = 0; j <= 3*M-1; j++) {
+	pose_sample.data.push_back(pose_t[i][j]);
+		}
 	}
 	pose_pub.publish(pose_sample);
 	rate.sleep();	
