@@ -91,6 +91,17 @@ int main(int argc, char **argv) {
 	pose_sample.data.push_back(pose_t[i][j]);
 		}
 	}
+		double sum1 = 0;
+	double sum2 = 0;
+	for (int i = 0; i <= M-1; i++) {
+	 	sum1 += pose_t[0][i];
+	}
+	double muy = sum1/M;
+	for (int i = 0; i <= M-1; i++) {
+	 	sum2 += pow(pose_t[0][i] - muy, 2);
+	}
+	double var = sum2/M;
+	cout << "Expect:" << muy << endl << "Variance" << var << endl;
 	pose_pub.publish(pose_sample);
 	rate.sleep();	
 	}
