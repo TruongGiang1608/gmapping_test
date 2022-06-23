@@ -9,7 +9,7 @@
 #include <std_msgs/Float64MultiArray.h>
 #include <nav_msgs/Odometry.h>
 using namespace std;
-double odom_pose_s[3]; odom_pose_tr[3];
+double odom_pose_s[3], odom_pose_tr[3];
 void odomCallback(const nav_msgs::Odometry& msg) {
 	odom_pose_tr[0] = odom_pose_s[0];
 	odom_pose_tr[1] = odom_pose_s[1];
@@ -87,7 +87,7 @@ int main(int argc, char **argv) {
 	std_msgs::Float64MultiArray pose_sample;
 	//pose_sample.data.resize(3*M);
 	for (int i = 0; i <= 2; i++) {
-		for(int j = 0; j <= 3*M-1; j++) {
+		for(int j = 0; j <= M-1; j++) {
 	pose_sample.data.push_back(pose_t[i][j]);
 		}
 	}
