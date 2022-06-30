@@ -43,7 +43,7 @@ void SampleMotionModel(double odom_pose_suc[3], double odom_pose_pre[3], double 
 	double del_rot1, del_trans, del_rot2;
 	double sig_rot1, sig_trans, sig_rot2;
 
-	del_rot1 = atan2(odom_pose_suc[1] - odom_pose_pre[1],odom_pose_suc[0] - odom_pose_pre[0]);
+	del_rot1 = atan2(odom_pose_suc[1] - odom_pose_pre[1],odom_pose_suc[0] - odom_pose_pre[0])- odom_pose_pre[2];
 	del_trans = sqrt(pow(odom_pose_suc[0] - odom_pose_pre[0], 2) + pow(odom_pose_suc[1] - odom_pose_pre[1], 2));
 	del_rot2 = odom_pose_suc[2] - odom_pose_pre[2] - del_rot1;
 
