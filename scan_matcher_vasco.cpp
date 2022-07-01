@@ -7,14 +7,13 @@
 #include <geometry_msgs/PoseArray.h>
 #include <random>
 #include <geometry_msgs/PoseStamped.h>
+#include <tf2_ros/static_transform_broadcaster.h>
+#include <geometry_msgs/TransformStamped.h>
+#include <nav_msgs/MapMetaData.h>
+#include <nav_msgs/OccupancyGrid.h>
+#include <sensor_msgs/LaserScan.h>
 using namespace std;
 
-// struct pose{
-//     vector<double> x;
-//     vector<double> y;
-//     vector<double> phi;
-
-// };
 double odom_s[3], odom_t[3];
 void odomCallback(const nav_msgs::Odometry& msg) {
 	odom_t[0] = odom_s[0];
@@ -24,6 +23,16 @@ void odomCallback(const nav_msgs::Odometry& msg) {
 	odom_s[0] = msg.pose.pose.position.x;
 	odom_s[1] = msg.pose.pose.position.y;
 	odom_s[2] = tf::getYaw(msg.pose.pose.orientation);
+}
+const int num_beam = 720;
+double angle[3], range[num_beam];
+void scanCallback(const sensor_msgs::LaserScan& scan) {
+    for(int i = 0; i < num_beam; i++) {
+        range[i] = scan.ranges[i];
+    }
+    angle[0] = scan.angle_min;
+    angle[1] = scan.angle_max;
+    angle[2] = scan.angle_increment;
 }
 const int M = 1;
 void SampleInitial(double (&initial_pose)[3][M]) {
@@ -43,48 +52,65 @@ void poseGuess(double odom_pose_suc[3], double odom_pose_pre[3], double pose_est
         pose_t[2][i] = pose_est_pre[2][i] + odom_pose_suc[2] - odom_pose_pre[2];
     }
 }
+const double map_width = 500, map_height = 500;
+const double map_resolution = 0.05;
+double x_offset = -map_width*map_resolution/2;
+double y_offset = -map_height*map_resolution/2;
 
 int main (int argc, char **argv) {
     ros::init(argc, argv, "scan_matcher_vasco");
     ros::NodeHandle nh;
-    ros::Publisher pose_guess_pub = nh.advertise<geometry_msgs::PoseStamped>("pose_guess", 1000);
-    ros::Subscriber odom_sub = nh.subscribe("odom", 1000, odomCallback);
+    // ros::Publisher pose_guess_pub = nh.advertise<geometry_msgs::PoseStamped>("pose_guess", 1000);
+    ros::Publisher map_pub = nh.advertise<nav_msgs::OccupancyGrid>("map_test", 1000);
 
-    tf2_ros::TransformBroadcaster pose_broadcaster;
-    ROS_INFO("Publishing pose samples over ROS");
+    ros::Subscriber odom_sub = nh.subscribe("odom", 1000, odomCallback);
+    ros::Subscriber laser_scan_sub = nh.subscribe("lidar_1/scan", 1000, scanCallback);
+
+    ROS_INFO("Running scan matching node !");
+
+    nav_msgs::OccupancyGrid map_test;
+    map_test.data.resize(map_width*map_height);
+    map_test.header.frame_id = "map";
+    map_test.info.map_load_time = ros::Time::now();
+    map_test.info.resolution = map_resolution;
+    map_test.info.width = map_width;
+    map_test.info.height = map_height;
+    map_test.info.origin.position.x = x_offset;
+    map_test.info.origin.position.y = y_offset;
+    map_test.info.origin.position.z = 0.0;
+    map_test.info.origin.orientation = tf::createQuaternionMsgFromYaw(0.0);
 
     double pose_t[3][M];
 	SampleInitial(pose_t);
     ros::Rate rate(50);
     while(ros::ok()) {
         ros::spinOnce();
-        poseGuess(odom_s, odom_t, pose_t, pose_t);
-        //for(int i = 0; i < M; i++) {
-            geometry_msgs::Quaternion pose_quat = tf::createQuaternionMsgFromYaw(pose_t[2][0]);
+        geometry_msgs::PoseStamped pose_laser;
+        pose_laser.header.stamp = ros::Time::now();
+        pose_laser.header.frame_id = "map";
+        pose_laser.pose.position.x = pose_t[0][0] + 0.28*cos(pose_t[2][0]);
+        pose_laser.pose.position.y = pose_t[1][0] + 0.28*sin(pose_t[2][0]);
+        pose_laser.pose.position.z = 0.095;
+        pose_laser.pose.orientation = tf::createQuaternionMsgFromYaw(pose_t[2][0]);
 
-            geometry_msgs::TransformStamped pose_trans;
-            pose_trans.header.stamp = ros::Time::now();
-            pose_trans.header.frame_id = "map";
-            pose_trans.child_frame_id = "base_footprint";
-    
-            pose_trans.transform.translation.x = pose_t[0][0];
-            pose_trans.transform.translation.y = pose_t[1][0];
-            pose_trans.transform.translation.z = 0.0;
-            pose_trans.transform.rotation = pose_quat;
-    
-            pose_broadcaster.sendTransform(pose_trans);
-
-            geometry_msgs::PoseStamped pose_guess;
-            pose_guess.header.stamp = ros::Time::now();
-            pose_guess.header.frame_id = "map";
-
-            geometry_msgs::Pose p;
-            pose_guess.pose.position.x = pose_t[0][0];
-            pose_guess.pose.position.y = pose_t[1][0];
-            pose_guess.pose.position.z = 0.0;
-            pose_guess.pose.orientation = pose_quat;
-        //}
-        pose_guess_pub.publish(pose_guess);
+        int index_x, index_y;
+        int index_num[num_beam];
+        for(int i = 0; i < num_beam; i++) {
+            index_x = ((pose_laser.pose.position.x + range[i]*cos(i*angle[2])*cos(pose_t[2][0]) - range[i]*sin(i*angle[2])*sin(pose_t[2][0])) - x_offset)/map_resolution + 1;
+            index_y = ((pose_laser.pose.position.y + range[i]*cos(i*angle[2])*sin(pose_t[2][0]) + range[i]*sin(i*angle[2])*cos(pose_t[2][0])) - y_offset)/map_resolution + 1;
+            index_num[i] = (index_y - 1)*map_width + index_x - 1;
+        }
+        for(int i = 0; i < map_width*map_height; i++) {
+            for(int j = 0; j < num_beam; j++) {
+                if(i == index_num[j]) {
+                map_test.data.push_back(100);
+            } else {
+                map_test.data.push_back(0);
+            }
+            }
+        }
+        // pose_laser_pub.publish(pose_guess);
+        map_pub.publish(map_test);
         rate.sleep();
         
     }
