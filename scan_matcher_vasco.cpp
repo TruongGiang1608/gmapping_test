@@ -12,6 +12,7 @@
 #include <nav_msgs/MapMetaData.h>
 #include <nav_msgs/OccupancyGrid.h>
 #include <sensor_msgs/LaserScan.h>
+#include <iostream>
 using namespace std;
 
 double odom_s[3], odom_t[3];
@@ -40,7 +41,7 @@ void SampleInitial(double (&initial_pose)[3][M]) {
 	mt19937 rng0(s0());
 	uniform_real_distribution<double> uni(0.0,1.0);
 	for (int i = 0; i <= 2; i++) {
-		for(int j = 0; j <= M-1; j++) {
+		for(int j = 0; j < M; j++) {
 			initial_pose[i][j] = uni(rng0);
 		}
 	}
@@ -68,6 +69,8 @@ int main (int argc, char **argv) {
 
     ROS_INFO("Running scan matching node !");
 
+    double pose_t[3][M] = {0, 0, 0};
+	// SampleInitial(pose_t);
     nav_msgs::OccupancyGrid map_test;
     map_test.data.resize(map_width*map_height);
     map_test.header.frame_id = "map";
@@ -79,12 +82,13 @@ int main (int argc, char **argv) {
     map_test.info.origin.position.y = y_offset;
     map_test.info.origin.position.z = 0.0;
     map_test.info.origin.orientation = tf::createQuaternionMsgFromYaw(0.0);
-
-    double pose_t[3][M];
-	SampleInitial(pose_t);
+    for(int i = 0; i < map_width*map_height; i++) {
+        map_test.data.push_back(0);
+    }
     ros::Rate rate(50);
     while(ros::ok()) {
         ros::spinOnce();
+        poseGuess(odom_s, odom_t, pose_t, pose_t);
         geometry_msgs::PoseStamped pose_laser;
         pose_laser.header.stamp = ros::Time::now();
         pose_laser.header.frame_id = "map";
@@ -100,16 +104,9 @@ int main (int argc, char **argv) {
             index_y = ((pose_laser.pose.position.y + range[i]*cos(i*angle[2])*sin(pose_t[2][0]) + range[i]*sin(i*angle[2])*cos(pose_t[2][0])) - y_offset)/map_resolution + 1;
             index_num[i] = (index_y - 1)*map_width + index_x - 1;
         }
-        for(int i = 0; i < map_width*map_height; i++) {
-            for(int j = 0; j < num_beam; j++) {
-                if(i == index_num[j]) {
-                map_test.data.push_back(100);
-            } else {
-                map_test.data.push_back(0);
-            }
-            }
+        for(int i = 0; i < num_beam; i++) {
+            map_test.data[index_num[i]] = 100;
         }
-        // pose_laser_pub.publish(pose_guess);
         map_pub.publish(map_test);
         rate.sleep();
         
