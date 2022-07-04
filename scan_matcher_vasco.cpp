@@ -13,6 +13,7 @@
 #include <nav_msgs/OccupancyGrid.h>
 #include <sensor_msgs/LaserScan.h>
 #include <iostream>
+#include <math.h>
 using namespace std;
 
 double odom_s[3], odom_t[3];
@@ -53,10 +54,14 @@ void poseGuess(double odom_pose_suc[3], double odom_pose_pre[3], double pose_est
         pose_t[2][i] = pose_est_pre[2][i] + odom_pose_suc[2] - odom_pose_pre[2];
     }
 }
-const double map_width = 500, map_height = 500;
+
+const int map_width = 500, map_height = 500;
 const double map_resolution = 0.05;
 double x_offset = -map_width*map_resolution/2;
 double y_offset = -map_height*map_resolution/2;
+const double PI = acos(-1);
+const double epsilon = 0.0001;
+const double eta = 0.1;
 
 int main (int argc, char **argv) {
     ros::init(argc, argv, "scan_matcher_vasco");
@@ -81,31 +86,71 @@ int main (int argc, char **argv) {
     map_test.info.origin.position.x = x_offset;
     map_test.info.origin.position.y = y_offset;
     map_test.info.origin.position.z = 0.0;
-    map_test.info.origin.orientation = tf::createQuaternionMsgFromYaw(0.0);
+    map_test.info.origin.orientation.x = 0;
+    map_test.info.origin.orientation.y = 0;
+    map_test.info.origin.orientation.z = 0;
+    map_test.info.origin.orientation.w = 0;
     for(int i = 0; i < map_width*map_height; i++) {
         map_test.data.push_back(0);
     }
-    ros::Rate rate(50);
+    ros::Rate rate(20);
     while(ros::ok()) {
         ros::spinOnce();
         poseGuess(odom_s, odom_t, pose_t, pose_t);
-        geometry_msgs::PoseStamped pose_laser;
-        pose_laser.header.stamp = ros::Time::now();
-        pose_laser.header.frame_id = "map";
-        pose_laser.pose.position.x = pose_t[0][0] + 0.28*cos(pose_t[2][0]);
-        pose_laser.pose.position.y = pose_t[1][0] + 0.28*sin(pose_t[2][0]);
-        pose_laser.pose.position.z = 0.095;
-        pose_laser.pose.orientation = tf::createQuaternionMsgFromYaw(pose_t[2][0]);
+        // geometry_msgs::PoseStamped pose_laser;
+        // pose_laser.header.stamp = ros::Time::now();
+        // pose_laser.header.frame_id = "map";
+        // pose_laser.pose.position.x = pose_t[0][0] + 0.28*cos(pose_t[2][0]);
+        // pose_laser.pose.position.y = pose_t[1][0] + 0.28*sin(pose_t[2][0]);
+        // pose_laser.pose.position.z = 0.095;
+        // pose_laser.pose.orientation = tf::createQuaternionMsgFromYaw(pose_t[2][0]);
 
         int index_x, index_y;
         int index_num[num_beam];
         for(int i = 0; i < num_beam; i++) {
-            index_x = ((pose_laser.pose.position.x + range[i]*cos(i*angle[2])*cos(pose_t[2][0]) - range[i]*sin(i*angle[2])*sin(pose_t[2][0])) - x_offset)/map_resolution + 1;
-            index_y = ((pose_laser.pose.position.y + range[i]*cos(i*angle[2])*sin(pose_t[2][0]) + range[i]*sin(i*angle[2])*cos(pose_t[2][0])) - y_offset)/map_resolution + 1;
+            index_x = ((pose_t[0][0] + 0.28*cos(pose_t[2][0]) + range[i]*cos(i*angle[2])*cos(pose_t[2][0]) - range[i]*sin(i*angle[2])*sin(pose_t[2][0])) - x_offset)/map_resolution + 1;
+            index_y = ((pose_t[1][0] + 0.28*sin(pose_t[2][0]) + range[i]*cos(i*angle[2])*sin(pose_t[2][0]) + range[i]*sin(i*angle[2])*cos(pose_t[2][0])) - y_offset)/map_resolution + 1;
             index_num[i] = (index_y - 1)*map_width + index_x - 1;
         }
         for(int i = 0; i < num_beam; i++) {
             map_test.data[index_num[i]] = 100;
+        }
+        double x_endpoint, y_endpoint, x_occupied_hat, y_occupied_hat;
+        vector<double> x_occupied, y_occupied;
+        vector<double> dist;
+        int count = 0;
+        double dist_min;
+        // double q = 1, sigma_hit = 0.1;
+        // double z_hit = 1.0, z_rand = 0.0, z_max = 1.0;
+        double gradient_x = 0, gradient_y = 0, gradient_phi = 0;
+        for(int i = 0; i < num_beam; i++) {
+            x_endpoint = pose_t[0][0] + 0.28*cos(pose_t[2][0]) + range[i]*cos(i*angle[2])*cos(pose_t[2][0]) - range[i]*sin(i*angle[2])*sin(pose_t[2][0]);
+            y_endpoint = pose_t[1][0] + 0.28*sin(pose_t[2][0]) + range[i]*cos(i*angle[2])*sin(pose_t[2][0]) + range[i]*sin(i*angle[2])*cos(pose_t[2][0]);
+            for(int j = 0; j < map_width*map_height; j++) {
+                if(map_test.data[j] > 0) {
+                    x_occupied.push_back((j + 1 - 2*j/map_width)*map_resolution - map_resolution/2 + x_offset);
+                    y_occupied.push_back((j/map_width + 1)*map_resolution - map_resolution/2 + y_offset);
+                    dist.push_back(sqrt(pow((x_endpoint - x_occupied[count]), 2) + pow((y_endpoint - y_occupied[count]), 2)));
+                    count++;
+                }
+            }
+            dist_min = dist[0];
+            for(int k = 0; k < count; k++) {
+                if(dist[k] <= dist_min) {
+                    dist_min = dist[k];
+                    x_occupied_hat = x_occupied[k];
+                    y_occupied_hat = y_occupied[k];
+                }
+            }
+            gradient_x += pose_t[0][0] + 0.28*cos(pose_t[2][0]) + range[i]*cos(pose_t[2][0]+i*angle[2]) - x_occupied_hat;
+            gradient_y += pose_t[1][0] + 0.28*sin(pose_t[2][0]) + range[i]*sin(pose_t[2][0]+i*angle[2]) - y_occupied_hat;
+            gradient_phi += (pose_t[0][0] - x_occupied_hat)*(-0.28*sin(pose_t[2][0]) - range[i]*sin(pose_t[2][0]+i*angle[2])) + (pose_t[1][0] - y_occupied_hat)*(0.28*cos(pose_t[2][0]) + range[i]*cos(pose_t[2][0]+i*angle[2]));
+            // q = q*(z_hit*exp(-0.5*pow(dist_min, 2)/pow(sigma_hit, 2))/sqrt(2*PI*pow(sigma_hit, 2)) + z_rand/z_max);
+        }
+        if(gradient_x > epsilon && gradient_y > epsilon && gradient_phi > epsilon) {
+            pose_t[2][0] = pose_t[2][0] - eta*gradient_phi;
+            pose_t[0][0] = pose_t[0][0] - eta*gradient_x;
+            pose_t[1][0] = pose_t[1][0] - eta*gradient_y;
         }
         map_pub.publish(map_test);
         rate.sleep();
