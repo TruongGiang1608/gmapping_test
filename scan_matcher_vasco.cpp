@@ -55,13 +55,14 @@ void poseGuess(double odom_pose_suc[3], double odom_pose_pre[3], double pose_est
     }
 }
 
-const int map_width = 500, map_height = 500;
-const double map_resolution = 0.03;
+const int map_width = 1200, map_height = 1200;
+const double map_resolution = 0.01;
 double x_offset = -map_width*map_resolution/2;
 double y_offset = -map_height*map_resolution/2;
 const double PI = acos(-1);
-const double epsilon = 0.01;
-const double eta = 0.5;
+const double epsilon = 0.001;
+const double epsilon_rad = 0.0009;
+const double eta = 0.01;
 
 int main (int argc, char **argv) {
     ros::init(argc, argv, "scan_matcher_vasco");
@@ -94,17 +95,20 @@ int main (int argc, char **argv) {
         map_test.data.push_back(0);
     }
     double x_endpoint, y_endpoint, x_occupied_hat, y_occupied_hat;
-    vector<double> x_occupied, y_occupied;
-    vector<double> dist;
+    double x_occupied, y_occupied;
+    double dist;
     double dist_min;
-    double q = 1, sigma_hit = 0.1;
+    // double q = 1, sigma_hit = 0.1;
     int count;
     // double z_hit = 1.0, z_rand = 0.0, z_max = 1.0;
     double gradient_x, gradient_y, gradient_phi;
+    double range_hat[num_beam];
+    int index_x, index_y;
+    int index_num[num_beam];
     ros::Rate rate(50);
     while(ros::ok()) {
         ros::spinOnce();
-        poseGuess(odom_s, odom_t, pose_t, pose_t);
+        // cout << "Pose:" << pose_t[0][0] << " " << pose_t[1][0] << " " << pose_t[2][0] << endl;
         // geometry_msgs::PoseStamped pose_laser;
         // pose_laser.header.stamp = ros::Time::now();
         // pose_laser.header.frame_id = "map";
@@ -113,8 +117,6 @@ int main (int argc, char **argv) {
         // pose_laser.pose.position.z = 0.095;
         // pose_laser.pose.orientation = tf::createQuaternionMsgFromYaw(pose_t[2][0]);
 
-        int index_x, index_y;
-        int index_num[num_beam];
         for(int i = 0; i < num_beam; i++) {
             index_x = ((pose_t[0][0] + 0.28*cos(pose_t[2][0]) + range[i]*cos(i*angle[2])*cos(pose_t[2][0]) - range[i]*sin(i*angle[2])*sin(pose_t[2][0])) - x_offset)/map_resolution + 1;
             index_y = ((pose_t[1][0] + 0.28*sin(pose_t[2][0]) + range[i]*cos(i*angle[2])*sin(pose_t[2][0]) + range[i]*sin(i*angle[2])*cos(pose_t[2][0])) - y_offset)/map_resolution + 1;
@@ -123,50 +125,62 @@ int main (int argc, char **argv) {
         for(int i = 0; i < num_beam; i++) {
             map_test.data[index_num[i]] = 100;
         }
-        // for(int i = 0; i < num_beam; i++) {
-        //     cout << range[i] << endl;
-        // }
+        map_pub.publish(map_test);
+        poseGuess(odom_s, odom_t, pose_t, pose_t);
+        for(int i = 0; i < num_beam; i++) {
+            range_hat[i] = range[i];
+        }
         do {
         for(int i = 0; i < num_beam; i++) {
             x_endpoint = pose_t[0][0] + 0.28*cos(pose_t[2][0]) + range[i]*cos(i*angle[2])*cos(pose_t[2][0]) - range[i]*sin(i*angle[2])*sin(pose_t[2][0]);
             y_endpoint = pose_t[1][0] + 0.28*sin(pose_t[2][0]) + range[i]*cos(i*angle[2])*sin(pose_t[2][0]) + range[i]*sin(i*angle[2])*cos(pose_t[2][0]);
             // cout << x_endpoint << " " << y_endpoint << " " << i << endl;
-            count = 0;
-            for(int j = 0; j < map_width*map_height; j++) {
+            // count = 0;
+            // for(int j = 0; j < map_width*map_height; j++) {
+            //     if(map_test.data[j] > 0) {
+            //         x_occupied.push_back((j + 1 - (j/map_width)*map_width)*map_resolution - map_resolution/2 + x_offset);
+            //         y_occupied.push_back((j/map_width + 1)*map_resolution - map_resolution/2 + y_offset);
+            //         dist.push_back(sqrt(pow((x_endpoint - x_occupied[count]), 2) + pow((y_endpoint - y_occupied[count]), 2)));
+            //         count++;
+            //     }
+            // }
+            // dist_min = dist[0];
+            // for(int k = 0; k < count; k++) {
+            //     if(dist[k] <= dist_min) {
+            //         dist_min = dist[k];
+            //         x_occupied_hat = x_occupied[k];
+            //         y_occupied_hat = y_occupied[k];
+            //     }
+            // }
+            // x_occupied.clear();
+            // y_occupied.clear();
+            // dist.clear();
+            dist_min = 1000;
+              for(int j = 0; j < map_width*map_height; j++) {
                 if(map_test.data[j] > 0) {
-                    x_occupied.push_back((j + 1 - (j/map_width)*map_width)*map_resolution - map_resolution/2 + x_offset);
-                    y_occupied.push_back((j/map_width + 1)*map_resolution - map_resolution/2 + y_offset);
-                    dist.push_back(sqrt(pow((x_endpoint - x_occupied[count]), 2) + pow((y_endpoint - y_occupied[count]), 2)));
-                    count++;
+                    x_occupied = ((j + 1 - (j/map_width)*map_width)*map_resolution - map_resolution/2 + x_offset);
+                    y_occupied = ((j/map_width + 1)*map_resolution - map_resolution/2 + y_offset);
+                    dist = (sqrt(pow((x_endpoint - x_occupied), 2) + pow((y_endpoint - y_occupied), 2)));
+                    if(dist <= dist_min) {
+                        dist_min = dist;
+                        x_occupied_hat = x_occupied;
+                        y_occupied_hat = y_occupied;
+                    }
                 }
             }
-            dist_min = dist[0];
-            for(int k = 0; k < count; k++) {
-                if(dist[k] <= dist_min) {
-                    dist_min = dist[k];
-                    x_occupied_hat = x_occupied[k];
-                    y_occupied_hat = y_occupied[k];
-                }
-            }
-            x_occupied.clear();
-            y_occupied.clear();
-            dist.clear();
             gradient_x = 0;
             gradient_y = 0;
             gradient_phi = 0;
-            // cout << dist_min << " " << x_occupied_hat << " " << y_occupied_hat << endl;
             gradient_x += pose_t[0][0] + 0.28*cos(pose_t[2][0]) + range[i]*cos(pose_t[2][0]+i*angle[2]) - x_occupied_hat;
             gradient_y += pose_t[1][0] + 0.28*sin(pose_t[2][0]) + range[i]*sin(pose_t[2][0]+i*angle[2]) - y_occupied_hat;
             gradient_phi += (pose_t[0][0] - x_occupied_hat)*(-0.28*sin(pose_t[2][0]) - range[i]*sin(pose_t[2][0]+i*angle[2])) + (pose_t[1][0] - y_occupied_hat)*(0.28*cos(pose_t[2][0]) + range[i]*cos(pose_t[2][0]+i*angle[2]));
             // q = q*(z_hit*exp(-0.5*pow(dist_min, 2)/pow(sigma_hit, 2))/sqrt(2*PI*pow(sigma_hit, 2)) + z_rand/z_max);
-
         }
-            cout << "gra:" << gradient_phi << " " << gradient_x << " " << gradient_y << endl;
             pose_t[0][0] = pose_t[0][0] - eta*gradient_x;
             pose_t[1][0] = pose_t[1][0] - eta*gradient_y;
             pose_t[2][0] = pose_t[2][0] - eta*gradient_phi;
-        } while(abs(gradient_x) > epsilon && abs(gradient_y) > epsilon && abs(gradient_phi) > epsilon);
-        map_pub.publish(map_test);
+        } while(abs(gradient_x) > epsilon_rad && abs(gradient_y) > epsilon && abs(gradient_phi) > epsilon);
+        cout << "gra:" << gradient_phi << " " << gradient_x << " " << gradient_y << endl;
         rate.sleep();
         
     }
