@@ -20,7 +20,7 @@ double odom_new[3];
 double odom_old[3];
 const int M = 1; // Number of partiles
 const int num_beam = 720; // Number of beams
-const int Z_MAX = 15; // Range maximum of beam
+const int Z_MAX = 15; // Range maximum of beam [m]
 double angle[3];
 double range[num_beam];
 const int map_width = 1200, map_height = 1200; // Size of map [cells]
@@ -67,62 +67,63 @@ void SampleInitial(double (&initial_pose)[3][M]) {
 	}
 }
 // Compute initial guess pose.
-// void PoseGuess(double odom_pose_new[3], double odom_pose_old[3], double pose_est[3][M], double (&pose_guess)[3][M])
-// { 
-// 	double del_rot1, del_trans, del_rot2;
-// 	del_rot1 = atan2(odom_pose_new[1] - odom_pose_old[1],odom_pose_new[0] - odom_pose_old[0])- odom_pose_old[2];
-// 	del_trans = sqrt(pow(odom_pose_new[0] - odom_pose_old[0], 2) + pow(odom_pose_new[1] - odom_pose_old[1], 2));
-// 	del_rot2 = odom_pose_new[2] - odom_pose_old[2] - del_rot1;
-// 	for (int i = 0; i < M; i++) {
-// 		pose_guess[0][i] = pose_est[0][i] + del_trans[i]*cos(pose_est[2][i] + del_rot1[i]);
-// 		pose_guess[1][i] = pose_est[1][i] + del_trans[i]*cos(pose_est[2][i] + del_rot1[i]);
-// 		pose_guess[2][i] = pose_est[2][i] + del_rot1[i] + del_rot2[i];
-// 	}
-// }
-void SampleMotionModel(double odom_pose_new[3], double odom_pose_old[3], double pose_est_old[3][M], double (&pose_guess)[3][M])
+void PoseGuess(double odom_pose_new[3], double odom_pose_old[3], double pose_est[3][M], double (&pose_guess)[3][M])
 { 
 	double del_rot1, del_trans, del_rot2;
-	double sig_rot1, sig_trans, sig_rot2;
-
 	del_rot1 = atan2(odom_pose_new[1] - odom_pose_old[1],odom_pose_new[0] - odom_pose_old[0])- odom_pose_old[2];
 	del_trans = sqrt(pow(odom_pose_new[0] - odom_pose_old[0], 2) + pow(odom_pose_new[1] - odom_pose_old[1], 2));
 	del_rot2 = odom_pose_new[2] - odom_pose_old[2] - del_rot1;
-
-	sig_rot1 = sqrt(anpha1*pow(del_rot1, 2) + anpha2*pow(del_trans, 2));
-	sig_trans = sqrt(anpha3*pow(del_trans, 2) + anpha4*pow(del_rot1, 2) + anpha4*pow(del_rot2, 2));
-	sig_rot2 = sqrt(anpha1*pow(del_rot2, 2) + anpha2*pow(del_trans, 2));
-
-	random_device s;
-	mt19937 rng(s());
-	normal_distribution<double> nor_dist_rot1(0, sig_rot1);
-	normal_distribution<double> nor_dist_trans(0, sig_trans);
-	normal_distribution<double> nor_dist_rot2(0, sig_rot2);
-
-    double del_rot1_hat[M], del_trans_hat[M], del_rot2_hat[M];
-
 	for (int i = 0; i < M; i++) {
-		del_rot1_hat[i] = del_rot1 - nor_dist_rot1(rng);
-		del_trans_hat[i] = del_trans - nor_dist_trans(rng);
-		del_rot2_hat[i] = del_rot2 - nor_dist_rot2(rng);	
-
-		pose_guess[0][i] = pose_est_old[0][i] + del_trans_hat[i]*cos(pose_est_old[2][i] + del_rot1_hat[i]);
-		pose_guess[1][i] = pose_est_old[1][i] + del_trans_hat[i]*cos(pose_est_old[2][i] + del_rot1_hat[i]);
-		pose_guess[2][i] = pose_est_old[2][i] + del_rot1_hat[i] + del_rot2_hat[i];
+		pose_guess[0][i] = pose_est[0][i] + del_trans[i]*cos(pose_est[2][i] + del_rot1[i]);
+		pose_guess[1][i] = pose_est[1][i] + del_trans[i]*cos(pose_est[2][i] + del_rot1[i]);
+		pose_guess[2][i] = pose_est[2][i] + del_rot1[i] + del_rot2[i];
 	}
 }
+// void SampleMotionModel(double odom_pose_new[3], double odom_pose_old[3], double pose_est_old[3][M], double (&pose_guess)[3][M])
+// { 
+// 	double del_rot1, del_trans, del_rot2;
+// 	double sig_rot1, sig_trans, sig_rot2;
+
+// 	del_rot1 = atan2(odom_pose_new[1] - odom_pose_old[1],odom_pose_new[0] - odom_pose_old[0])- odom_pose_old[2];
+// 	del_trans = sqrt(pow(odom_pose_new[0] - odom_pose_old[0], 2) + pow(odom_pose_new[1] - odom_pose_old[1], 2));
+// 	del_rot2 = odom_pose_new[2] - odom_pose_old[2] - del_rot1;
+
+// 	sig_rot1 = sqrt(anpha1*pow(del_rot1, 2) + anpha2*pow(del_trans, 2));
+// 	sig_trans = sqrt(anpha3*pow(del_trans, 2) + anpha4*pow(del_rot1, 2) + anpha4*pow(del_rot2, 2));
+// 	sig_rot2 = sqrt(anpha1*pow(del_rot2, 2) + anpha2*pow(del_trans, 2));
+
+// 	random_device s;
+// 	mt19937 rng(s());
+// 	normal_distribution<double> nor_dist_rot1(0, sig_rot1);
+// 	normal_distribution<double> nor_dist_trans(0, sig_trans);
+// 	normal_distribution<double> nor_dist_rot2(0, sig_rot2);
+
+//     double del_rot1_hat[M], del_trans_hat[M], del_rot2_hat[M];
+
+// 	for (int i = 0; i < M; i++) {
+// 		del_rot1_hat[i] = del_rot1 - nor_dist_rot1(rng);
+// 		del_trans_hat[i] = del_trans - nor_dist_trans(rng);
+// 		del_rot2_hat[i] = del_rot2 - nor_dist_rot2(rng);	
+
+// 		pose_guess[0][i] = pose_est_old[0][i] + del_trans_hat[i]*cos(pose_est_old[2][i] + del_rot1_hat[i]);
+// 		pose_guess[1][i] = pose_est_old[1][i] + del_trans_hat[i]*cos(pose_est_old[2][i] + del_rot1_hat[i]);
+// 		pose_guess[2][i] = pose_est_old[2][i] + del_rot1_hat[i] + del_rot2_hat[i];
+// 	}
+// }
 // Compute likelihood
-double likelihood(double x_t[3], double z_t[num_beam], double angle_beam[3], double m[map_width*map_height]) {
-    double l = 0;
+void likelihood_gra(double x_t[3][M], double z_t[num_beam], double angle_beam[3], double m[map_width*map_height], double (&gra)[3]) {
+    double gra_x = 0, gra_y = 0, gra_z = 0;
     double x_endpoint, y_endpoint;
     double x_occupied, y_occupied;
     double x_occupied_, y_occupied_;
     double dist, dist_min;
+	double p_hit, p_rand;
     for(int i = 0; i < num_beam; i++) {
         x_endpoint = x_t[0][0] + 0.28*cos(x_t[2][0]) + z_t[i]*cos(i*angle_beam[2] + x_t[2][0]);
         y_endpoint = x_t[1][0] + 0.28*sin(x_t[2][0]) + z_t[i]*sin(i*angle_beam[2] + x_t[2][0]);
         dist_min = UINT16_MAX;
         for(int j = 0; j < map_width*map_height; j++) {
-            if(map_test.data[j] > 0) {
+            if(m[j] > 0) {
                 x_occupied_ = ((j + 1 - (j/map_width)*map_width)*map_resolution - map_resolution/2 + x_offset);
                 y_occupied_ = ((j/map_width + 1)*map_resolution - map_resolution/2 + y_offset);
                 dist = (sqrt(pow((x_endpoint - x_occupied), 2) + pow((y_endpoint - y_occupied), 2)));
@@ -133,30 +134,17 @@ double likelihood(double x_t[3], double z_t[num_beam], double angle_beam[3], dou
                 }
             }
         }
-        l += log((z_hit/(sqrt(2*PI)*sigma_hit))*exp(-0.5*pow((dist_min/sigma_hit), 2)) + z_rand/Z_MAX);
+	   p_hit = (z_hit/(sqrt(2*PI)*sigma_hit))*exp(-0.5*pow((dist_min/sigma_hit), 2));
+	   p_rand = z_rand/Z_MAX;
+	   gra_x += pow(sigma_hit, -2)*(x_endpoint - x_occupied)/(1 + p_rand/p_hit);
+	   gra_y += pow(sigma_hit, -2)*(y_endpoint - y_occupied)/(1 + p_rand/p_hit);
+	   gra_phi += pow(sigma_hit, -2)*((x_t[0][0] - x_occupied)*(-0.28*sin(x_t[2][0]) - z_t[i]*sin(x_t[2][0]+i*angle_beam[2])) + (x_t[1][0] - y_occupied)*(0.28*cos(x_t[2][0]) + z_t[i]*cos(x_t[2][0]+i*angle_beam[2])))/(1 + p_rand/p_hit);
     }
-    return l;
+	gra[0] = gra_x;
+	gra[1] = gra_y;
+	gra[2] = gra_phi;
 }
-// Scan matching
-void ScanMatching(double pose_guess[3][M], double z_t[num_beam], double angle_beam[3], double m[map_width*map_height], double (&pose_t)[3][M]) {
-    double l = -UINT64_MAX;
-    double localL;
-    for(int i = 0; i < M; i++) {
-        do{
-            anpha1 = anpha1/2;
-            anpha2 = anpha2/2;
-            anpha3 = anpha3/2;
-            anpha4 = anpha4/2;
-            for(int j = 0; j < M; j++) {
-                SampleMotionModel(odom_new, odom_old, pose_t, pose_t);
-                localL = likelihood(pose_t,)
-            }
-        }while (/* condition */)
-        
-    }
 
-
-}
 int main (int argc, char **argv) {
     ros::init(argc, argv, "scan_matcher_vasco");
     ros::NodeHandle nh;
@@ -192,4 +180,7 @@ int main (int argc, char **argv) {
     for(int i = 0; i < num_beam; i++) {
             map_test.data[index_num[i]] = 100;
     }
+	while(ros::ok()) {
+		
+	}
 }
