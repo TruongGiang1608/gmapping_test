@@ -16,7 +16,7 @@
 #include <math.h>
 using namespace std;
 
-double odom_new[3];
+double odom_new[3], odom_t[3];
 double odom_old[3];
 const int M = 1; // Number of partiles
 const int num_beam = 720; // Number of beams
@@ -28,7 +28,7 @@ const double map_resolution = 0.01; // Resolution of map [m]
 double x_offset = -map_width*map_resolution/2;
 double y_offset = -map_height*map_resolution/2;
 const double PI = acos(-1);
-const double z_hit = 0.95, z_rand = 0.05, sigma_hit = 0.01;
+const double z_hit = 0.95, z_rand = 0.05, sigma_hit = 0.1;
 const double epsilon_trans = 0.001;
 const double epsilon_rot = 0.001;
 const double eta = 0.1;
@@ -42,13 +42,9 @@ double gra_x, gra_y, gra_phi;
 
 // Call message from topic odom.
 void odomCallback(const nav_msgs::Odometry& msg) {
-	odom_old[0] = odom_new[0];
-	odom_old[1] = odom_new[1];
-	odom_old[2] = odom_new[2];
-	
-	odom_new[0] = msg.pose.pose.position.x;
-	odom_new[1] = msg.pose.pose.position.y;
-	odom_new[2] = tf::getYaw(msg.pose.pose.orientation);
+    odom_t[0] = msg.pose.pose.position.x;
+	odom_t[1] = msg.pose.pose.position.y;
+	odom_t[2] = tf::getYaw(msg.pose.pose.orientation);
 }
 // Call message from topic laser scan.
 void scanCallback(const sensor_msgs::LaserScan& scan) {
@@ -83,35 +79,6 @@ void PoseGuess(double odom_pose_new[3], double odom_pose_old[3], double pose_est
 		pose_guess[2][i] = pose_est[2][i] + del_rot1 + del_rot2;
 	}
 }
-// Compute likelihood
-void LikelihoodGradient(double x_t[3][M], double z_t[num_beam], double angle_beam[3], double m[map_width*map_height], double gra[3]) {
-    gra_x = 0; gra_y = 0; gra_phi = 0;
-    for(int i = 0; i < num_beam; i++) {
-        x_endpoint = x_t[0][0] + 0.28*cos(x_t[2][0]) + z_t[i]*cos(i*angle_beam[2] + x_t[2][0]);
-        y_endpoint = x_t[1][0] + 0.28*sin(x_t[2][0]) + z_t[i]*sin(i*angle_beam[2] + x_t[2][0]);
-        dist_min = UINT16_MAX;
-        for(int j = 0; j < map_width*map_height; j++) {
-            if(m[j] > 0) {
-                x_occupied_ = ((j + 1 - (j/map_width)*map_width)*map_resolution - map_resolution/2 + x_offset);
-                y_occupied_ = ((j/map_width + 1)*map_resolution - map_resolution/2 + y_offset);
-                dist = (sqrt(pow((x_endpoint - x_occupied_), 2) + pow((y_endpoint - y_occupied_), 2)));
-                if(dist <= dist_min) {
-                    dist_min = dist;
-                    x_occupied = x_occupied_;
-                    y_occupied = y_occupied_;
-                }
-            }
-        }
-	   p_hit = (z_hit/(sqrt(2*PI)*sigma_hit))*exp(-0.5*pow((dist_min/sigma_hit), 2));
-	   p_rand = z_rand/Z_MAX;
-	   gra_x += pow(sigma_hit, -2)*(x_endpoint - x_occupied)/(1 + p_rand/p_hit);
-	   gra_y += pow(sigma_hit, -2)*(y_endpoint - y_occupied)/(1 + p_rand/p_hit);
-	   gra_phi += pow(sigma_hit, -2)*((x_t[0][0] - x_occupied)*(-0.28*sin(x_t[2][0]) - z_t[i]*sin(x_t[2][0]+i*angle_beam[2])) + (x_t[1][0] - y_occupied)*(0.28*cos(x_t[2][0]) + z_t[i]*cos(x_t[2][0]+i*angle_beam[2])))/(1 + p_rand/p_hit);
-    }
-	gra[0] = gra_x; 
-	gra[1] = gra_y;
-	gra[2] = gra_phi;
-}
 
 int main (int argc, char **argv) {
     ros::init(argc, argv, "scan_matcher_vasco");
@@ -122,10 +89,9 @@ int main (int argc, char **argv) {
     ros::Subscriber laser_scan_sub = nh.subscribe("lidar_1/scan", 1000, scanCallback);
     ROS_INFO("Running scan matching node !");
     
-    int index_x, index_y;
+    int index_x, index_y, index_xy;
     int index_num[num_beam];
     double pose_t[3][M] = {0, 0, 0};
-    double gra_[3];
     double range_old[num_beam];
     
 	// // SampleInitial(pose_t);
@@ -144,8 +110,8 @@ int main (int argc, char **argv) {
         map_test.data.push_back(0);
     }
     for(int i = 0; i < num_beam; i++) {
-            index_x = ((pose_t[0][0] + 0.28*cos(pose_t[2][0]) + range[i]*cos(i*angle[2])*cos(pose_t[2][0]) - range[i]*sin(i*angle[2])*sin(pose_t[2][0])) - x_offset)/map_resolution + 1;
-            index_y = ((pose_t[1][0] + 0.28*sin(pose_t[2][0]) + range[i]*cos(i*angle[2])*sin(pose_t[2][0]) + range[i]*sin(i*angle[2])*cos(pose_t[2][0])) - y_offset)/map_resolution + 1;
+            index_x = ((pose_t[0][0] + 0.28*cos(pose_t[2][0]) + range[i]*cos(i*angle[2] + pose_t[2][0])) - x_offset)/map_resolution + 1;
+            index_y = ((pose_t[1][0] + 0.28*sin(pose_t[2][0]) + range[i]*sin(i*angle[2] + pose_t[2][0])) - y_offset)/map_resolution + 1;
             index_num[i] = (index_y - 1)*map_width + index_x - 1;
     }
     for(int i = 0; i < num_beam; i++) {
@@ -154,29 +120,81 @@ int main (int argc, char **argv) {
     ros::Rate rate(50);
 	while(ros::ok()) {
         ros::spinOnce();
+        for(int i = 0; i < 3; i++) {
+            odom_new[i] = odom_t[i];
+        } 
+        // cout << odom_new[2] << " " << odom_old[2] << endl;
         PoseGuess(odom_new, odom_old, pose_t, pose_t);
-        for(int i = 0; i < map_width*map_height; i++) {
-            m[i] = map_test.data[i];
-        }
-        for(int i = 0; i < num_beam; i++) {
-            range_old[i] = range[i];
-        }
+        // for(int i = 0; i < map_width*map_height; i++) {
+        //     m[i] = map_test.data[i];
+        // }
+        // for(int i = 0; i < num_beam; i++) {
+        //     range_old[i] = range[i];
+        // }
         do{
-            LikelihoodGradient(pose_t, range_old, angle, m, gra_);
-            pose_t[0][0] = pose_t[0][0] - eta*gra_[0];
-            pose_t[1][0] = pose_t[1][0] - eta*gra_[1];
-            pose_t[2][0] = pose_t[2][0] - eta*gra_[2];
-        }while(fabs(gra_[0]) > epsilon_trans && fabs(gra_[1]) > epsilon_trans && fabs(gra_[2]) > epsilon_rot);
-        cout << "gra:" << gra_[0] << " " << gra_[1] << " " << gra_[2] << endl;
+            gra_x = 0; gra_y = 0; gra_phi = 0;
+            for(int i = 0; i < num_beam; i++) {
+            x_endpoint = pose_t[0][0] + 0.28*cos(pose_t[2][0]) + range[i]*cos(i*angle[2] + pose_t[2][0]);
+            y_endpoint = pose_t[1][0] + 0.28*sin(pose_t[2][0]) + range[i]*sin(i*angle[2] + pose_t[2][0]);
+            index_x = (x_endpoint - x_offset)/map_resolution + 1;
+            index_y = (y_endpoint - y_offset)/map_resolution + 1;
+            dist_min = UINT16_MAX;
+            if((index_x - 2) >= 0 && (index_x + 2) <= map_width && (index_y - 2) >= 0 && (index_y + 2) <= map_height) {
+                for(int j = index_x - 2; j <= index_x + 2; j++) {
+                    for(int k = index_y - 2; k <= index_y + 2; k++) {
+                        index_xy = (k - 1)*map_width + (j - 1);
+                        if(map_test.data[index_xy] > 0) {
+                            x_occupied_ = ((index_xy + 1 - (index_xy/map_width)*map_width)*map_resolution - map_resolution/2 + x_offset);
+                            y_occupied_ = ((index_xy/map_width + 1)*map_resolution - map_resolution/2 + y_offset);
+                            dist = (sqrt(pow((x_endpoint - x_occupied_), 2) + pow((y_endpoint - y_occupied_), 2)));
+                            if(dist <= dist_min) {
+                                x_occupied = x_occupied_;
+                                y_occupied = y_occupied_;
+                                dist_min = dist;
+                            }
+                        }
+                    }
+                }
+            } else {
+                for(int j = 0; j < map_width*map_height; j++) {
+                    if(map_test.data[j] > 0) {
+                    x_occupied_ = ((j + 1 - (j/map_width)*map_width)*map_resolution - map_resolution/2 + x_offset);
+                    y_occupied_ = ((j/map_width + 1)*map_resolution - map_resolution/2 + y_offset);
+                    dist = (sqrt(pow((x_endpoint - x_occupied_), 2) + pow((y_endpoint - y_occupied_), 2)));
+                    if(dist <= dist_min) {
+                    dist_min = dist;
+                    x_occupied = x_occupied_;
+                    y_occupied = y_occupied_;
+                    }
+                }
+            }     
+            }
+	        p_hit = (z_hit/(sqrt(2*PI)*sigma_hit))*exp(-0.5*pow((dist_min/sigma_hit), 2));
+	        p_rand = z_rand/Z_MAX;
+	        gra_x += pow(sigma_hit, -2)*(x_endpoint - x_occupied)/(1 + p_rand/p_hit);
+	        gra_y += pow(sigma_hit, -2)*(y_endpoint - y_occupied)/(1 + p_rand/p_hit);
+	        gra_phi += pow(sigma_hit, -2)*((pose_t[0][0] - x_occupied)*(-0.28*sin(pose_t[2][0]) - range[i]*sin(pose_t[2][0]+i*angle[2])) + (pose_t[1][0] - y_occupied)*(0.28*cos(pose_t[2][0]) + range[i]*cos(pose_t[2][0]+i*angle[2])))/(1 + p_rand/p_hit);
+            cout << "gra:" << gra_x << " " << gra_y << " " << gra_phi << endl;
+            }   
+            pose_t[0][0] = pose_t[0][0] - eta*gra_x;
+            pose_t[1][0] = pose_t[1][0] - eta*gra_y;
+            pose_t[2][0] = pose_t[2][0] - eta*gra_phi;
+         
+        } while(fabs(gra_x) > epsilon_trans && fabs(gra_y) > epsilon_trans && fabs(gra_phi) > epsilon_rot);
+        // cout << "gra:" << gra_x << " " << gra_y << " " << gra_phi << endl;
+        // cout << pose_t[2][0] << " " << pose_t[0][0] << " " << pose_t[1][0] << endl;
         for(int i = 0; i < num_beam; i++) {
-            index_x = ((pose_t[0][0] + 0.28*cos(pose_t[2][0]) + range_old[i]*cos(i*angle[2])*cos(pose_t[2][0]) - range_old[i]*sin(i*angle[2])*sin(pose_t[2][0])) - x_offset)/map_resolution + 1;
-            index_y = ((pose_t[1][0] + 0.28*sin(pose_t[2][0]) + range_old[i]*cos(i*angle[2])*sin(pose_t[2][0]) + range_old[i]*sin(i*angle[2])*cos(pose_t[2][0])) - y_offset)/map_resolution + 1;
+            index_x = ((pose_t[0][0] + 0.28*cos(pose_t[2][0]) + range[i]*cos(i*angle[2] + pose_t[2][0])) - x_offset)/map_resolution + 1;
+            index_y = ((pose_t[1][0] + 0.28*sin(pose_t[2][0]) + range[i]*sin(i*angle[2] + pose_t[2][0])) - y_offset)/map_resolution + 1;
             index_num[i] = (index_y - 1)*map_width + index_x - 1;
-        }
+    }
         for(int i = 0; i < num_beam; i++) {
             map_test.data[index_num[i]] = 100;
         }
         map_pub.publish(map_test);
+        for(int i = 0; i < 3; i++) {
+            odom_old[i] = odom_new[i];
+        }   
         rate.sleep();
 	}
     return 0;
