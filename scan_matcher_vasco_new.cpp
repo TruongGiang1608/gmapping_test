@@ -14,6 +14,7 @@
 #include <sensor_msgs/LaserScan.h>
 #include <iostream>
 #include <math.h>
+#include <algorithm>
 using namespace std;
 
 double odom_new[3], odom_t[3];
@@ -23,15 +24,15 @@ const int num_beam = 720; // Number of beams
 const int Z_MAX = 15; // Range maximum of beam [m]
 double angle[3];
 double range[num_beam];
-const int map_width = 500, map_height = 500; // Size of map [cells]
-const double map_resolution = 0.05; // Resolution of map [m]
+const int map_width = 1200, map_height = 1200; // Size of map [cells]
+const double map_resolution = 0.01; // Resolution of map [m]
 double x_offset = -map_width*map_resolution/2;
 double y_offset = -map_height*map_resolution/2;
 const double PI = acos(-1);
 const double z_hit = 0.95, z_rand = 0.05, sigma_hit = 0.05;
 const double epsilon_trans = 0.001;
 const double epsilon_rot = 0.001;
-const double eta = 0.05;
+const double eta = 0.001;
 double x_endpoint, y_endpoint;
 double x_occupied, y_occupied;
 double x_occupied_, y_occupied_;
@@ -39,7 +40,9 @@ double dist, dist_min;
 double p_hit, p_rand;
 double m[map_width*map_height];
 double gra_x, gra_y, gra_phi;
-double sum_gra_x, sum_gra_y, sum_gra_phi;
+double sum_gra_x, sum_gra_y, sum_gra_phi, E_gx, E_gy, E_gphi;
+int nu[num_beam];
+const int N = 50;
 
 // Call message from topic odom.
 void odomCallback(const nav_msgs::Odometry& msg) {
@@ -118,7 +121,10 @@ int main (int argc, char **argv) {
     for(int i = 0; i < num_beam; i++) {
             map_test.data[index_num[i]] = 100;
     }
-    ros::Rate rate(0.2);
+    for(int i = 0; i < num_beam; i++) {
+        nu[i] = i;
+    }
+    ros::Rate rate(1);
 	while(ros::ok()) {
         ros::spinOnce();
         for(int i = 0; i < 3; i++) {
@@ -126,26 +132,28 @@ int main (int argc, char **argv) {
         } 
         // cout << odom_new[2] << " " << odom_old[2] << endl;
         PoseGuess(odom_new, odom_old, pose_t, pose_t);
-        // for(int i = 0; i < map_width*map_height; i++) {
-        //     m[i] = map_test.data[i];
-        // }
         for(int i = 0; i < num_beam; i++) {
             range_old[i] = range[i];
         }
         sum_gra_x = 0;
         sum_gra_y = 0;
         sum_gra_phi = 0;
+        E_gx = 0;
+        E_gy = 0;
+        E_gphi = 0;
+        random_shuffle(&nu[0],&nu[num_beam]);
         do{
+            // random_shuffle(&nu[0],&nu[num_beam]);
             gra_x = 0; gra_y = 0; gra_phi = 0;
-            for(int i = 0; i < num_beam; i++) {
-            x_endpoint = pose_t[0][0] + 0.28*cos(pose_t[2][0]) + range[i]*cos(i*angle[2] + pose_t[2][0]);
-            y_endpoint = pose_t[1][0] + 0.28*sin(pose_t[2][0]) + range[i]*sin(i*angle[2] + pose_t[2][0]);
+            for(int i = 0; i < N; i++) {
+            x_endpoint = pose_t[0][0] + 0.28*cos(pose_t[2][0]) + range[nu[i]]*cos(nu[i]*angle[2] + pose_t[2][0]);
+            y_endpoint = pose_t[1][0] + 0.28*sin(pose_t[2][0]) + range[nu[i]]*sin(nu[i]*angle[2] + pose_t[2][0]);
             index_x = (x_endpoint - x_offset)/map_resolution + 1;
             index_y = (y_endpoint - y_offset)/map_resolution + 1;
             dist_min = UINT16_MAX;
-            if((index_x - 2) > 0 && (index_x + 2) <= map_width && (index_y - 2) > 0 && (index_y + 2) <= map_height) { // no.1
-                for(int j = index_x - 2; j <= index_x + 2; j++) {
-                    for(int k = index_y - 2; k <= index_y + 2; k++) {
+            if((index_x - 8) > 0 && (index_x + 8) <= map_width && (index_y - 8) > 0 && (index_y + 8) <= map_height) { // no.1
+                for(int j = index_x - 8; j <= index_x + 8; j++) {
+                    for(int k = index_y - 8; k <= index_y + 8; k++) {
                         index_xy = (k - 1)*map_width + (j - 1);
                         if(map_test.data[index_xy] > 0) {
                             x_occupied_ = ((index_xy + 1 - (index_xy/map_width)*map_width)*map_resolution - map_resolution/2 + x_offset);
@@ -159,9 +167,9 @@ int main (int argc, char **argv) {
                         }
                     }
                 }
-            } else if((index_x - 2) <= 0 && (index_x + 2) <= map_width && (index_y - 2) > 0 && (index_y + 2) <= map_height){ // no.2
-                    for(int j = 1; j <= index_x + 2; j++) {
-                        for(int k = index_y - 2; k <= index_y + 2; k++) {
+            } else if((index_x - 8) <= 0 && (index_x + 8) <= map_width && (index_y - 8) > 0 && (index_y + 8) <= map_height){ // no.2
+                    for(int j = 1; j <= index_x + 8; j++) {
+                        for(int k = index_y - 8; k <= index_y + 8; k++) {
                         index_xy = (k - 1)*map_width + (j - 1);
                         if(map_test.data[index_xy] > 0) {
                             x_occupied_ = ((index_xy + 1 - (index_xy/map_width)*map_width)*map_resolution - map_resolution/2 + x_offset);
@@ -175,9 +183,9 @@ int main (int argc, char **argv) {
                         }
                         }
                     }
-            } else if((index_x - 2) > 0 && (index_x + 2) > map_width && (index_y - 2) > 0 && (index_y + 2) <= map_height){ // no.3
-                    for(int j = index_x - 2; j <= map_width; j++) {
-                        for(int k = index_y - 2; k <= index_y + 2; k++) {
+            } else if((index_x - 8) > 0 && (index_x + 8) > map_width && (index_y - 8) > 0 && (index_y + 8) <= map_height){ // no.3
+                    for(int j = index_x - 8; j <= map_width; j++) {
+                        for(int k = index_y - 8; k <= index_y + 8; k++) {
                         index_xy = (k - 1)*map_width + (j - 1);
                         if(map_test.data[index_xy] > 0) {
                             x_occupied_ = ((index_xy + 1 - (index_xy/map_width)*map_width)*map_resolution - map_resolution/2 + x_offset);
@@ -191,9 +199,9 @@ int main (int argc, char **argv) {
                         }
                         }
                     }
-            } else if((index_x - 2) > 0 && (index_x + 2) <= map_width && (index_y - 2) <= 0 && (index_y + 2) <= map_height){ // no.4
-                    for(int j = index_x - 2; j <= index_x + 2; j++) {
-                        for(int k = 1; k <= index_y + 2; k++) {
+            } else if((index_x - 8) > 0 && (index_x + 8) <= map_width && (index_y - 8) <= 0 && (index_y + 8) <= map_height){ // no.4
+                    for(int j = index_x - 8; j <= index_x + 8; j++) {
+                        for(int k = 1; k <= index_y + 8; k++) {
                         index_xy = (k - 1)*map_width + (j - 1);
                         if(map_test.data[index_xy] > 0) {
                             x_occupied_ = ((index_xy + 1 - (index_xy/map_width)*map_width)*map_resolution - map_resolution/2 + x_offset);
@@ -207,8 +215,8 @@ int main (int argc, char **argv) {
                         }
                         }
                     }
-            } else if((index_x - 2) > 0 && (index_x + 2) <= map_width && (index_y - 2) > 0 && (index_y + 2) > map_height){ // no.5
-                    for(int j = index_x - 2; j <= index_x + 2; j++) {
+            } else if((index_x - 8) > 0 && (index_x + 8) <= map_width && (index_y - 8) > 0 && (index_y + 8) > map_height){ // no.5
+                    for(int j = index_x - 8; j <= index_x + 8; j++) {
                         for(int k = index_y - 2; k <= map_height; k++) {
                         index_xy = (k - 1)*map_width + (j - 1);
                         if(map_test.data[index_xy] > 0) {
@@ -223,9 +231,9 @@ int main (int argc, char **argv) {
                         }
                         }
                     }
-            } else if((index_x - 2) > 0 && (index_x + 2) <= map_width && (index_y - 2) > 0 && (index_y + 2) <= map_height){ // no.6
-                    for(int j = index_x - 2; j <= map_width; j++) {
-                        for(int k = index_y - 2; k <= index_y + 2; k++) {
+            } else if((index_x - 8) > 0 && (index_x + 8) <= map_width && (index_y - 8) > 0 && (index_y + 8) <= map_height){ // no.6
+                    for(int j = index_x - 8; j <= map_width; j++) {
+                        for(int k = index_y - 8; k <= index_y + 8; k++) {
                         index_xy = (k - 1)*map_width + (j - 1);
                         if(map_test.data[index_xy] > 0) {
                             x_occupied_ = ((index_xy + 1 - (index_xy/map_width)*map_width)*map_resolution - map_resolution/2 + x_offset);
@@ -239,7 +247,7 @@ int main (int argc, char **argv) {
                         }
                         }
                     }
-            } else if((index_x - 2) <= 0 && (index_x + 2) > map_width && (index_y - 2) <= 0 && (index_y + 2) > map_height){ // no.7
+            } else if((index_x - 8) <= 0 && (index_x + 8) > map_width && (index_y - 8) <= 0 && (index_y + 8) > map_height){ // no.7
                     for(int j = 1; j <= map_width; j++) {
                         for(int k = 1; k <= map_height; k++) {
                         index_xy = (k - 1)*map_width + (j - 1);
@@ -255,8 +263,8 @@ int main (int argc, char **argv) {
                         }
                         }
                     }
-            } else if((index_x - 2) > 0 && (index_x + 2) > map_width && (index_y - 2) <= 0 && (index_y + 2) > map_height){ // no.8
-                    for(int j = index_x - 2; j <= map_width; j++) {
+            } else if((index_x - 8) > 0 && (index_x + 8) > map_width && (index_y - 8) <= 0 && (index_y + 8) > map_height){ // no.8
+                    for(int j = index_x - 8; j <= map_width; j++) {
                         for(int k = 1; k <= map_height; k++) {
                         index_xy = (k - 1)*map_width + (j - 1);
                         if(map_test.data[index_xy] > 0) {
@@ -271,8 +279,8 @@ int main (int argc, char **argv) {
                         }
                         }
                     }
-            } else if((index_x - 2) > 0 && (index_x + 2) <= map_width && (index_y - 2) <= 0 && (index_y + 2) > map_height){ // no.9
-                    for(int j = index_x - 2; j <= index_x + 2; j++) {
+            } else if((index_x - 8) > 0 && (index_x + 8) <= map_width && (index_y - 8) <= 0 && (index_y + 8) > map_height){ // no.9
+                    for(int j = index_x - 8; j <= index_x + 8; j++) {
                         for(int k = 1; k <= map_height; k++) {
                         index_xy = (k - 1)*map_width + (j - 1);
                         if(map_test.data[index_xy] > 0) {
@@ -287,9 +295,9 @@ int main (int argc, char **argv) {
                         }
                         }
                     }
-            } else if((index_x - 2) > 0 && (index_x + 2) <= map_width && (index_y - 2) > 0 && (index_y + 2) > map_height){ // no.10
-                    for(int j = index_x - 2; j <= index_x + 2; j++) {
-                        for(int k = index_y - 2; k <= map_height; k++) {
+            } else if((index_x - 8) > 0 && (index_x + 8) <= map_width && (index_y - 8) > 0 && (index_y + 8) > map_height){ // no.10
+                    for(int j = index_x - 8; j <= index_x + 8; j++) {
+                        for(int k = index_y - 8; k <= map_height; k++) {
                         index_xy = (k - 1)*map_width + (j - 1);
                         if(map_test.data[index_xy] > 0) {
                             x_occupied_ = ((index_xy + 1 - (index_xy/map_width)*map_width)*map_resolution - map_resolution/2 + x_offset);
@@ -303,9 +311,9 @@ int main (int argc, char **argv) {
                         }
                         }
                     }
-            } else if((index_x - 2) <= 0 && (index_x + 2) > map_width && (index_y - 2) > 0 && (index_y + 2) <= map_height){ // no.11
+            } else if((index_x - 8) <= 0 && (index_x + 8) > map_width && (index_y - 8) > 0 && (index_y + 8) <= map_height){ // no.11
                     for(int j = 1; j <= map_width; j++) {
-                        for(int k = index_y - 2; k <= index_y + 2; k++) {
+                        for(int k = index_y - 8; k <= index_y + 8; k++) {
                         index_xy = (k - 1)*map_width + (j - 1);
                         if(map_test.data[index_xy] > 0) {
                             x_occupied_ = ((index_xy + 1 - (index_xy/map_width)*map_width)*map_resolution - map_resolution/2 + x_offset);
@@ -319,9 +327,9 @@ int main (int argc, char **argv) {
                         }
                         }
                     }
-            } else if((index_x - 2) <= 0 && (index_x + 2) > map_width && (index_y - 2) <= 0 && (index_y + 2) <= map_height){ // no.12
+            } else if((index_x - 8) <= 0 && (index_x + 8) > map_width && (index_y - 8) <= 0 && (index_y + 8) <= map_height){ // no.12
                     for(int j = 1; j <= map_width; j++) {
-                        for(int k = 1; k <= index_y + 2; k++) {
+                        for(int k = 1; k <= index_y + 8; k++) {
                         index_xy = (k - 1)*map_width + (j - 1);
                         if(map_test.data[index_xy] > 0) {
                             x_occupied_ = ((index_xy + 1 - (index_xy/map_width)*map_width)*map_resolution - map_resolution/2 + x_offset);
@@ -335,9 +343,9 @@ int main (int argc, char **argv) {
                         }
                         }
                     }
-            } else if((index_x - 2) <= 0 && (index_x + 2) <= map_width && (index_y - 2) <= 0 && (index_y + 2) <= map_height){ // no.13
-                    for(int j = 1; j <= index_x + 2; j++) {
-                        for(int k = 1; k <= index_y + 2; k++) {
+            } else if((index_x - 8) <= 0 && (index_x + 8) <= map_width && (index_y - 8) <= 0 && (index_y + 8) <= map_height){ // no.13
+                    for(int j = 1; j <= index_x + 8; j++) {
+                        for(int k = 1; k <= index_y + 8; k++) {
                         index_xy = (k - 1)*map_width + (j - 1);
                         if(map_test.data[index_xy] > 0) {
                             x_occupied_ = ((index_xy + 1 - (index_xy/map_width)*map_width)*map_resolution - map_resolution/2 + x_offset);
@@ -351,9 +359,9 @@ int main (int argc, char **argv) {
                         }
                         }
                     }
-            } else if((index_x - 2) > 0 && (index_x + 2) > map_width && (index_y - 2) > 0 && (index_y + 2) > map_height){ // no.14
-                    for(int j = index_x - 2; j <= map_width; j++) {
-                        for(int k = index_y - 2; k <= map_height; k++) {
+            } else if((index_x - 8) > 0 && (index_x + 8) > map_width && (index_y - 8) > 0 && (index_y + 8) > map_height){ // no.14
+                    for(int j = index_x - 8; j <= map_width; j++) {
+                        for(int k = index_y - 8; k <= map_height; k++) {
                         index_xy = (k - 1)*map_width + (j - 1);
                         if(map_test.data[index_xy] > 0) {
                             x_occupied_ = ((index_xy + 1 - (index_xy/map_width)*map_width)*map_resolution - map_resolution/2 + x_offset);
@@ -367,9 +375,9 @@ int main (int argc, char **argv) {
                         }
                         }
                     }
-            } else if((index_x - 2) > 0 && (index_x + 2) > map_width && (index_y - 2) <= 0 && (index_y + 2) <= map_height){ // no.15
-                    for(int j = index_x - 2; j <= map_width; j++) {
-                        for(int k = 1; k <= index_y + 2; k++) {
+            } else if((index_x - 8) > 0 && (index_x + 8) > map_width && (index_y - 8) <= 0 && (index_y + 8) <= map_height){ // no.15
+                    for(int j = index_x - 8; j <= map_width; j++) {
+                        for(int k = 1; k <= index_y + 8; k++) {
                         index_xy = (k - 1)*map_width + (j - 1);
                         if(map_test.data[index_xy] > 0) {
                             x_occupied_ = ((index_xy + 1 - (index_xy/map_width)*map_width)*map_resolution - map_resolution/2 + x_offset);
@@ -384,8 +392,8 @@ int main (int argc, char **argv) {
                         }
                     }
             } else { // no.16
-                    for(int j = 1; j <= index_x + 2; j++) {
-                        for(int k = index_y - 2; k <= map_height; k++) {
+                    for(int j = 1; j <= index_x + 8; j++) {
+                        for(int k = index_y - 8; k <= map_height; k++) {
                         index_xy = (k - 1)*map_width + (j - 1);
                         if(map_test.data[index_xy] > 0) {
                             x_occupied_ = ((index_xy + 1 - (index_xy/map_width)*map_width)*map_resolution - map_resolution/2 + x_offset);
@@ -400,29 +408,31 @@ int main (int argc, char **argv) {
                         }
                     }
             }
-            // cout << "Occupied" << x_occupied << " " << y_occupied << " " << dist_min << endl;
+            if(dist_min == UINT16_MAX) {
+                gra_x += 0;
+                gra_y += 0;
+                gra_phi += 0;
+            } else {
 	        p_hit = (z_hit/(sqrt(2*PI)*sigma_hit))*exp(-0.5*pow((dist_min/sigma_hit), 2));
-            // cout << " p_hit:" << p_hit << endl;
 	        p_rand = z_rand/Z_MAX;
-            // cout << " p_rand:" << p_rand << endl;
-            // gra_x += pose_t[0][0] + 0.28*cos(pose_t[2][0]) + range[i]*cos(pose_t[2][0]+i*angle[2]) - x_occupied;
-            // gra_y += pose_t[1][0] + 0.28*sin(pose_t[2][0]) + range[i]*sin(pose_t[2][0]+i*angle[2]) - y_occupied;
-            // gra_phi += (pose_t[0][0] - x_occupied)*(-0.28*sin(pose_t[2][0]) - range[i]*sin(pose_t[2][0]+i*angle[2])) + (pose_t[1][0] - y_occupied)*(0.28*cos(pose_t[2][0]) + range[i]*cos(pose_t[2][0]+i*angle[2]));
 	        gra_x += pow(sigma_hit, -2)*(x_endpoint - x_occupied)/(1 + p_rand/p_hit);
 	        gra_y += pow(sigma_hit, -2)*(y_endpoint - y_occupied)/(1 + p_rand/p_hit);
-	        gra_phi += pow(sigma_hit, -2)*((pose_t[0][0] - x_occupied)*(-0.28*sin(pose_t[2][0]) - range_old[i]*sin(pose_t[2][0]+i*angle[2])) + (pose_t[1][0] - y_occupied)*(0.28*cos(pose_t[2][0]) + range_old[i]*cos(pose_t[2][0]+i*angle[2])))/(1 + p_rand/p_hit);
-            // cout << "gra:" << gra_x << " " << gra_y << " " << gra_phi << endl;
+	        gra_phi += pow(sigma_hit, -2)*((pose_t[0][0] - x_occupied)*(-0.28*sin(pose_t[2][0]) - range_old[nu[i]]*sin(pose_t[2][0]+nu[i]*angle[2])) + (pose_t[1][0] - y_occupied)*(0.28*cos(pose_t[2][0]) + range_old[nu[i]]*cos(pose_t[2][0]+nu[i]*angle[2])))/(1 + p_rand/p_hit);
+            }
             }
             sum_gra_x += pow(gra_x, 2);
             sum_gra_y += pow(gra_y, 2);
             sum_gra_phi += pow(gra_x, 2);
+            // E_gx = 0.9*E_gx + 0.1*sum_gra_x;
+            // E_gy = 0.9*E_gy + 0.1*sum_gra_y;
+            // E_gphi = 0.9*E_gphi + 0.1*sum_gra_phi;
             pose_t[0][0] = pose_t[0][0] - eta*gra_x/sqrt(sum_gra_x + 1e-8);
             pose_t[1][0] = pose_t[1][0] - eta*gra_y/sqrt(sum_gra_y + 1e-8);
             pose_t[2][0] = pose_t[2][0] - eta*gra_phi/sqrt(sum_gra_phi + 1e-8);
+            // count++;
             // pose_t[0][0] = pose_t[0][0] - eta*gra_x;
             // pose_t[1][0] = pose_t[1][0] - eta*gra_y;
             // pose_t[2][0] = pose_t[2][0] - eta*gra_phi;
-        // } while((fabs(gra_phi) > epsilon_rot));
         } while((fabs(gra_x) > epsilon_trans) || (fabs(gra_y) > epsilon_trans) || (fabs(gra_phi) > epsilon_rot));
         cout << "Sum_gra:" << gra_x << " " << gra_y << " " << gra_phi << endl;
         // cout << pose_t[2][0] << " " << pose_t[0][0] << " " << pose_t[1][0] << endl;
