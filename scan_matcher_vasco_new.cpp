@@ -13,10 +13,15 @@
 #include <nav_msgs/MapMetaData.h>
 #include <nav_msgs/OccupancyGrid.h>
 #include <sensor_msgs/LaserScan.h>
+#include <nav_msgs/Odometry.h>
 #include <iostream>
 #include <math.h>
 #include <algorithm>
+#include <message_filters/subscriber.h>
+#include <message_filters/time_synchronizer.h>
+#include <message_filters/sync_policies/exact_time.h>
 using namespace std;
+using namespace message_filters;
 
 const int M = 1; // Number of partiles
 const int num_beam = 540; // Number of beams
@@ -32,21 +37,33 @@ const double PI = acos(-1);
 const double z_hit = 0.95, sigma_hit = 0.05;
 const double a = z_hit/sqrt(2*PI*pow(sigma_hit, 2));
 const double c = (1 - z_hit)/Z_MAX;
-const double epsilon_trans = 0.001;
-const double epsilon_rot = 0.001;
+const double epsilon_trans = 0.0001;
+const double epsilon_rot = 0.0001;
 const double eta = 0.001;
 double angle[3];
 double range[num_beam];
 double odom_t[3];
 
 // Call message from topic odom.
-void odomCallback(const nav_msgs::Odometry& msg) {
+// void odomCallback(const nav_msgs::Odometry& msg) {
+//     odom_t[0] = msg.pose.pose.position.x;
+// 	odom_t[1] = msg.pose.pose.position.y;
+// 	odom_t[2] = tf::getYaw(msg.pose.pose.orientation);
+// }
+// // Call message from topic laser scan.
+// void scanCallback(const sensor_msgs::LaserScan& scan) {
+//     for(int i = 0; i < num_beam; i++) {
+//         range[i] = scan.ranges[i];
+//     }
+//     angle[0] = scan.angle_min;
+//     angle[1] = scan.angle_max;
+//     angle[2] = scan.angle_increment;
+// }
+void callback(const nav_msgs::Odometry& msg, const sensor_msgs::LaserScan& scan) {
     odom_t[0] = msg.pose.pose.position.x;
 	odom_t[1] = msg.pose.pose.position.y;
 	odom_t[2] = tf::getYaw(msg.pose.pose.orientation);
-}
-// Call message from topic laser scan.
-void scanCallback(const sensor_msgs::LaserScan& scan) {
+
     for(int i = 0; i < num_beam; i++) {
         range[i] = scan.ranges[i];
     }
@@ -71,8 +88,16 @@ int main (int argc, char **argv) {
     ros::NodeHandle nh;
     ros::Publisher pose_guess_pub = nh.advertise<geometry_msgs::PoseStamped>("pose_guess", 1000);
     ros::Publisher map_pub = nh.advertise<nav_msgs::OccupancyGrid>("map_test", 1000);
-    ros::Subscriber odom_sub = nh.subscribe("odom", 1000, odomCallback);
-    ros::Subscriber laser_scan_sub = nh.subscribe("scan1", 1000, scanCallback);
+    // ros::Subscriber odom_sub = nh.subscribe("odom", 1000, odomCallback);
+    // ros::Subscriber laser_scan_sub = nh.subscribe("scan1", 1000, scanCallback);
+    message_filters::Subscriber<nav_msgs::Odometry> odom_sub(nh, "odom", 100);
+    message_filters::Subscriber<sensor_msgs::LaserScan> laser_scan_sub(nh, "scan1", 100);
+
+    // typedef sync_policies::ExactTime<nav_msgs::Odometry, sensor_msgs::LaserScan> MySyncPolicy;
+    // message_filters::Synchronizer<MySyncPolicy> sync(MySyncPolicy(1000), odom_sub, laser_scan_sub);
+    message_filters::TimeSynchronizer<nav_msgs::Odometry, sensor_msgs::LaserScan> sync(odom_sub, laser_scan_sub, 1000);
+    // sync.registerCallback(boost::bind(&callback, 1, 2));
+    sync.registerCallback(callback);
     ROS_INFO("Running scan matching node !");
     
     double odom_new[3], odom_old[3];
@@ -123,7 +148,7 @@ int main (int argc, char **argv) {
     }
     for(int i = 0; i < 3; i++) {
             odom_old[i] = odom_t[i];
-            odom_new[i] = odom_old[i];
+            // odom_new[i] = odom_old[i];
         } 
     ros::Rate rate(1);
 	while(ros::ok()) {
@@ -139,7 +164,6 @@ int main (int argc, char **argv) {
 		    pose_t[1][i] = pose_t[1][i] + del_x*sin(pose_t[2][i]) + del_y*cos(pose_t[2][i]);
 		    pose_t[2][i] = pose_t[2][i] + del_phi;
 	    }
-        cout << pose_t[0][0] << " " << pose_t[1][0] << endl;
         for(int i = 0; i < num_beam; i++) {
             range_old[i] = range[i];
         }
@@ -452,7 +476,7 @@ int main (int argc, char **argv) {
             // pose_t[1][0] = pose_t[1][0] - eta*gra_y;
             // pose_t[2][0] = pose_t[2][0] - eta*gra_phi;
         } while((fabs(gra_x) > epsilon_trans) || (fabs(gra_y) > epsilon_trans) || (fabs(gra_phi) > epsilon_rot));
-        // cout << "Gradient_descent:" << gra_x << " " << gra_y << " " << gra_phi << endl;
+        cout << "Gradient_descent:" << gra_x << " " << gra_y << " " << gra_phi << endl;
         for(int i = 0; i < num_beam; i++) {
             x_endpoint = pose_t[0][0] + x_sens*cos(pose_t[2][0]) - y_sens*sin(pose_t[2][0]) + range_old[i]*cos(PI/2 - i*angle[2] + pose_t[2][0]);
             y_endpoint = pose_t[1][0] + x_sens*sin(pose_t[2][0]) + y_sens*cos(pose_t[2][0]) + range_old[i]*sin(PI/2 -i*angle[2] + pose_t[2][0]);
